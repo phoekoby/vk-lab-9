@@ -1,0 +1,7 @@
+.idea
+.gradle
+admin/build
+clan/build
+users/build
+values/build
+modreators/build
