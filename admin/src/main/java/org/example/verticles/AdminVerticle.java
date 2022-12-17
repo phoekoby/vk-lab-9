@@ -1,6 +1,7 @@
 package org.example.verticles;
 
 import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.eventbus.DeliveryOptions;
 import org.example.ClanEvent;
@@ -24,19 +25,31 @@ public class AdminVerticle extends AbstractVerticle {
     @Override
     public void start(Promise<Void> startPromise) {
         requestToCheckOnline(startPromise);
-        vertx.eventBus().consumer(CHAT + name, event -> {
-            System.out.println("I got message from " + event.body());
-        });
+        vertx.eventBus().consumer(CHAT + name, event -> System.out.println("I got message from " + event.body()));
         System.out.println("AdminVerticle with Name " + name + " deployed");
     }
 
     private void getClan(Promise<?> promise) {
-        this.getVertx().sharedData().<String, ClanDTO>getAsyncMap(ALL_USERS_CLAN, map -> {
+        this.getVertx().sharedData().<String, String>getAsyncMap(ALL_USERS_CLAN, map -> {
             if (map.succeeded()) {
                 map.result().get(name, clan -> {
                     if (clan.succeeded()) {
-                        this.clan = clan.result();
-                        promise.complete();
+                        vertx.sharedData().<String, ClanDTO>getAsyncMap(CLAN_INFORMATION, resultClanMap -> {
+                            if (resultClanMap.succeeded()) {
+                                resultClanMap.result().get(clan.result(), resultClanDTO -> {
+                                    if (resultClanDTO.succeeded()) {
+                                        this.clan = resultClanDTO.result();
+                                        promise.complete();
+                                    }else {
+                                        promise.fail("Not found");
+                                    }
+                                });
+                            }else {
+                                promise.fail("Not found");
+                            }
+                        });
+                    }else {
+                        promise.fail("Smth went wrong(");
                     }
                 });
             }
@@ -68,15 +81,15 @@ public class AdminVerticle extends AbstractVerticle {
                         vertx.sharedData().<String, Boolean>getAsyncMap(USER_ONLINE_MAP, map1 -> {
                             if (map1.succeeded()) {
                                 map1.result().put(name, true);
-                                vertx.executeBlocking(
-                                        this::getClan,
-                                        res -> {
-                                            System.out.println("Clan: " + clan.getName());
-                                            vertx.eventBus().send(ACTIVATE_CLAN + clan.getName(), ClanEvent.ACTIVATE.getValue());
-                                            setTimerForChangingClanInformation();
-                                            System.out.println("I [ " + name + " ] am online now!");
-                                        }
-                                );
+                                Future.future(this::getClan).compose(result-> Future.future(res ->{
+                                    System.out.println("Clan: " + clan.getName());
+                                    vertx.eventBus().send(ACTIVATE_CLAN + clan.getName(), ClanEvent.ACTIVATE.getValue());
+                                    setTimerForChangingClanInformation();
+                                    System.out.println("I [ " + name + " ] am online now!");
+                                    res.complete();
+                                })).onFailure(event -> startPromise.fail(event.getCause()));
+                            }else {
+                                startPromise.fail("Map not found");
                             }
                         });
                     } else {

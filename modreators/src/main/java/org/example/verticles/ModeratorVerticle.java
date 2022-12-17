@@ -1,13 +1,16 @@
 package org.example.verticles;
 
 import io.vertx.core.AbstractVerticle;
+import io.vertx.core.CompositeFuture;
 import io.vertx.core.Promise;
-import io.vertx.core.eventbus.DeliveryOptions;
-import org.example.ClanEvent;
+import io.vertx.core.shareddata.AsyncMap;
 import org.example.dto.ClanDTO;
 
+import java.util.List;
+
 import static org.example.MapsConstants.*;
-import static org.example.MessageChannelsConstants.*;
+import static org.example.MessageChannelsConstants.CHAT;
+import static org.example.MessageChannelsConstants.JOIN_REQUEST;
 
 public class ModeratorVerticle extends AbstractVerticle {
     private final String name;
@@ -21,18 +24,30 @@ public class ModeratorVerticle extends AbstractVerticle {
     @Override
     public void start(Promise<Void> startPromise) {
         requestToCheckOnline(startPromise);
-        vertx.eventBus().consumer(CHAT + name, event -> {
-            System.out.println("I got message from " + event.body());
-        });
+        vertx.eventBus().consumer(CHAT + name, event -> System.out.println("I got message from " + event.body()));
     }
 
-    private void getClan() {
-        this.getVertx().sharedData().<String, ClanDTO>getAsyncMap(ALL_USERS_CLAN, map -> {
+    private void getClan(Promise<Void> startPromise) {
+        this.getVertx().sharedData().<String, String>getAsyncMap(ALL_USERS_CLAN, map -> {
             if (map.succeeded()) {
-                map.result().get(name, clan -> {
-                    if (clan.succeeded()) {
-                        this.clan = clan.result();
-                        subscribe();
+                map.result().get(name, clanName -> {
+                    if (clanName.succeeded()) {
+                        vertx.sharedData().<String, ClanDTO>getAsyncMap(CLAN_INFORMATION, resultClanMap -> {
+                            if (resultClanMap.succeeded()) {
+                                resultClanMap.result().get(clanName.result(), resultClanDTO -> {
+                                    if (resultClanDTO.succeeded()) {
+                                        this.clan = resultClanDTO.result();
+                                        subscribe();
+                                    }else {
+                                        startPromise.fail("Clan not found");
+                                    }
+                                });
+                            }else {
+                                startPromise.fail("Map not found");
+                            }
+                        });
+                    } else {
+                        startPromise.fail("Clan not found");
                     }
                 });
             }
@@ -50,9 +65,7 @@ public class ModeratorVerticle extends AbstractVerticle {
                             }
                         });
                         System.out.println("I [ " + name + " ] am online now!");
-                        getClan();
-
-
+                        getClan(startPromise);
                     } else {
                         startPromise.fail(new IllegalArgumentException("User with  name [" + name + "] is already online"));
                     }
@@ -64,25 +77,51 @@ public class ModeratorVerticle extends AbstractVerticle {
     private void subscribe() {
         vertx.eventBus().<String>consumer(JOIN_REQUEST + clan.getName(), event -> {
             String userName = event.body();
-            vertx.sharedData().<String, ClanDTO>getAsyncMap(ALL_USERS_CLAN, map -> {
-                if (map.succeeded()) {
-                    map.result().get(userName, result -> {
+            vertx.sharedData().<String, String>getAsyncMap(ALL_USERS_CLAN, allUsersMap -> {
+                if (allUsersMap.succeeded()) {
+                    allUsersMap.result().get(userName, result -> {
                         if (result.succeeded()) {
                             if (result.result() != null) {
                                 System.out.println("User [" + userName + "] is already in clan");
                                 event.reply(false);
                             } else {
-                                vertx.eventBus().<Boolean>request(ADD_OR_DENY_REQUEST + clan.getName(), userName, reply -> {
-                                    if (reply.succeeded()) {
-                                        if (reply.result().body()) {
-                                            System.out.println("User [" + userName + "] was added in clan [" + clan.getName() + "] by Moderator [" + name + "]");
-                                            event.reply(true);
-                                        } else {
-                                            System.out.println("Sorry, " + userName + " we can not add you in our clan :((");
-                                            event.reply(false);
-                                        }
+                                vertx.sharedData().<String, List<String>>getAsyncMap(CLAN_USERS, clanUsersMap -> {
+                                    if(clanUsersMap.succeeded()){
+                                        clanUsersMap.result().get(clan.getName(), res->{
+                                            if(res.succeeded()){
+                                                if(res.result().size() < clan.getAmountUsers()){
+                                                    res.result().add(event.body());
+                                                    List<String> members = res.result();
+
+                                                    CompositeFuture.all(vertx.sharedData().<String, List<String>>getAsyncMap(CLAN_USERS),
+                                                                    vertx.sharedData().<String, String>getAsyncMap(ALL_USERS_CLAN))
+                                                            .onComplete(compositeFutureResult->{
+                                                                if(compositeFutureResult.succeeded()){
+                                                                    CompositeFuture resultOmCompositeFuture = compositeFutureResult.result();
+                                                                    AsyncMap<String, List<String>> mapClanToUsers = resultOmCompositeFuture.resultAt(0);
+                                                                    AsyncMap<String, String> allUsersClan = resultOmCompositeFuture.resultAt(1);
+                                                                    CompositeFuture.all(mapClanToUsers.put(clan.getName(), members),
+                                                                                    allUsersClan.put(event.body(), clan.getName()))
+                                                                            .onComplete(putResult -> {
+                                                                                if(putResult.succeeded()){
+                                                                                    System.out.println(name + " added " + event.body() + " to clan " + clan.getName());
+                                                                                    event.reply(true);
+                                                                                }else{
+                                                                                    event.reply(false);
+                                                                                }
+                                                                            });
+                                                                }else {
+                                                                    event.reply(false);
+                                                                }
+                                                            });
+                                                }else{
+                                                    event.reply(false);
+                                                }
+                                            }
+                                        });
                                     }
                                 });
+//
                             }
                         }
                     });

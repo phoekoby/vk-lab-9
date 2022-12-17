@@ -16,7 +16,7 @@ public class UserMain {
                     new VertxOptions(),
                     vertxResult -> {
                         final var vertx = vertxResult.result();
-                        final var options = new DeploymentOptions().setWorker(true);
+                        final var options = new DeploymentOptions();
                         final var adminVerticle = new UserVerticle(name);
                         vertx.deployVerticle(adminVerticle, options, result -> {
                             if (result.failed()) {

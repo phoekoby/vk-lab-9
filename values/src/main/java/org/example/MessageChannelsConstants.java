@@ -10,6 +10,5 @@ public final class MessageChannelsConstants {
     public static final String CLAN_CHAT = "clan-chat";
 
     public static final String JOIN_REQUEST = "clan-join-req";
-    public static final String ADD_OR_DENY_REQUEST = "clan-add-or-deny";
     private MessageChannelsConstants(){}
 }

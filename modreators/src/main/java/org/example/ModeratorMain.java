@@ -16,7 +16,7 @@ public class ModeratorMain {
                     new VertxOptions(),
                     vertxResult -> {
                         final var vertx = vertxResult.result();
-                        final var options = new DeploymentOptions().setWorker(true);
+                        final var options = new DeploymentOptions();
                         final var moderatorVerticle = new ModeratorVerticle(name);
                         vertx.deployVerticle(moderatorVerticle, options, result -> {
                             if (result.failed()) {

@@ -3,13 +3,12 @@ package org.example.varticles;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
 import io.vertx.core.eventbus.DeliveryOptions;
-import org.example.ClanEvent;
 import org.example.dto.ClanDTO;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
+
 import static org.example.MapsConstants.*;
 import static org.example.MessageChannelsConstants.*;
 
@@ -26,22 +25,37 @@ public class UserVerticle extends AbstractVerticle {
     @Override
     public void start(Promise<Void> startPromise) {
         requestToCheckOnline(startPromise);
-        vertx.eventBus().consumer(CHAT + name, event -> {
-            System.out.println("I got message from " + event.body());
-        });
+        vertx.eventBus().consumer(CHAT + name, event -> System.out.println("I got message from " + event.body()));
     }
 
-    private void getClan() {
-        this.getVertx().sharedData().<String, ClanDTO>getAsyncMap(ALL_USERS_CLAN, map -> {
+    private void getClan(Promise<Void> startPromise) {
+        this.getVertx().sharedData().<String, String>getAsyncMap(ALL_USERS_CLAN, map -> {
             if (map.succeeded()) {
                 map.result().get(name, clan -> {
                     if (clan.succeeded()) {
-                        this.clan = clan.result();
-                        if (clan.result() != null) {
-                            subscribeForInClan();
-                        } else {
+                        if(clan.result() != null) {
+                            vertx.sharedData().<String, ClanDTO>getAsyncMap(CLAN_INFORMATION, resultClanMap -> {
+                                if (resultClanMap.succeeded()) {
+                                    resultClanMap.result().get(clan.result(), resultClanDTO -> {
+                                        if (resultClanDTO.succeeded()) {
+                                            this.clan = resultClanDTO.result();
+                                            if (clan.result() != null) {
+                                                startPromise.complete();
+                                                subscribeForInClan();
+                                            }
+                                        } else {
+                                            startPromise.fail("Clan not found");
+                                        }
+                                    });
+                                } else {
+                                    startPromise.fail("Map not found");
+                                }
+                            });
+                        }else {
                             subscribeForNotInClan();
                         }
+                    } else {
+                        startPromise.fail("clan not found");
                     }
                 });
             }
@@ -59,7 +73,7 @@ public class UserVerticle extends AbstractVerticle {
                             }
                         });
                         System.out.println("I [ " + name + " ] am online now!");
-                        getClan();
+                        getClan(startPromise);
                     } else {
                         startPromise.fail(new IllegalArgumentException("User with  name [" + name + "] is already online"));
                     }
@@ -70,80 +84,94 @@ public class UserVerticle extends AbstractVerticle {
 
 
     private void subscribeForInClan() {
-        vertx.setPeriodic(10000, event1 -> {
-            vertx.sharedData().<String, List<String>>getAsyncMap(CLAN_USERS, event -> {
-                if (event.succeeded()) {
-                    event.result().get(clan.getName(), res -> {
-                        if (res.succeeded()) {
-                            List<String> members = res.result();
-                                final ThreadLocalRandom random = ThreadLocalRandom.current();
-                                String target = members.get(random.nextInt(members.size()));
-                                while (target.equals(name)){
-                                    target = members.get(random.nextInt(members.size()));
-                                }
-                                vertx.eventBus().send(CHAT + target, name);
+        vertx.setPeriodic(10000, timer -> vertx.sharedData().<String, List<String>>getAsyncMap(CLAN_USERS, clanUsersMap -> {
+            if (clanUsersMap.succeeded()) {
+                clanUsersMap.result().get(clan.getName(), res -> {
+                    if (res.succeeded()) {
+                        List<String> members = res.result();
+                        final ThreadLocalRandom random = ThreadLocalRandom.current();
+                        List<String> filteredMembers = members
+                                .stream()
+                                .filter(s -> !s.equals(name))
+                                .toList();
+                                String target = filteredMembers.get(random.nextInt(filteredMembers.size()));
+                        vertx.eventBus().send(CHAT + target, name);
 
-                            }
-                        });
                     }
                 });
-            });
-            vertx.eventBus().consumer(CLAN_CHAT, event -> {
-                System.out.println("I [" + name + "] am going out");
-            });
-        }
-
-        private void subscribeForNotInClan () {
-            vertx.setPeriodic(10000, timer -> {
-                vertx.sharedData().<String, Boolean>getAsyncMap(CLAN_ACTIVE_MAP, map -> {
-                    if (map.succeeded()) {
-                        map
-                                .result()
-                                .entries()
-                                .onComplete(res -> {
-                                    List<String> activeClans = res.result()
-                                            .entrySet()
-                                            .stream()
-                                            .filter(Map.Entry::getValue)
-                                            .map(Map.Entry::getKey)
-                                            .toList();
-
-                                    System.out.println("All active clans: " + activeClans);
-                                    final ThreadLocalRandom random = ThreadLocalRandom.current();
-
-                                    if (activeClans.size() != 0) {
-                                        final ThreadLocalRandom newRandom = ThreadLocalRandom.current();
-                                        int number = newRandom.nextInt(100);
-                                        if (number >= 50) {
-                                            String clanName = activeClans.get(random.nextInt(activeClans.size()));
-                                            System.out.println("Sending application for membership in " + clanName);
-                                            vertx.eventBus().<Boolean>request(JOIN_REQUEST + clanName, name, new DeliveryOptions()
-                                                            .setSendTimeout(1500),
-                                                    reply -> {
-                                                        if (reply.succeeded()) {
-                                                            System.out.println("I have response form moderators of " + clanName + ", he said: " + reply.result().body());
-                                                            if (reply.result().body()) {
-                                                                vertx.cancelTimer(timer);
-                                                                getClan();
-                                                                System.out.println("Congratulations! A am in clan " + clanName + " now!");
-                                                            }
-                                                        }
-                                                    });
-                                        }
-                                    }
-                                });
-                    }
-                });
-            });
-        }
-
-        @Override
-        public void stop (Promise < Void > stopPromise)  {
-            vertx.sharedData().<String, Boolean>getAsyncMap(USER_ONLINE_MAP, map -> {
-                if (map.succeeded()) {
-                    map.result().put(name, false);
-                    stopPromise.complete();
+            }
+        }));
+        vertx.eventBus().consumer(CLAN_CHAT, event -> {
+            System.out.println("I [" + name + "] am going out");
+            clan = null;
+            vertx.sharedData().<String, String>getAsyncMap(ALL_USERS_CLAN, mapResult->{
+                if(mapResult.succeeded()){
+                    mapResult.result().put(name, null);
                 }
             });
-        }
+            vertx.sharedData().<String, List<String>>getAsyncMap(CLAN_USERS, mapClanUsersResult -> {
+                if(mapClanUsersResult.succeeded()){
+                    mapClanUsersResult.result().get(clan.getName(), getListOFUsers-> getListOFUsers.result().remove(name));
+                }
+            });
+            subscribeForNotInClan();
+        });
     }
+
+    private void subscribeForNotInClan() {
+        final int RANDOM_ROOF = 100;
+        final int EXECUTE_REQUEST_RANDOM_ROOF = 50;
+        final int TIME_OUT = 1500;
+        final DeliveryOptions deliveryOptions = new DeliveryOptions();
+        vertx.setPeriodic(10000, timer -> vertx.sharedData().<String, Boolean>getAsyncMap(CLAN_ACTIVE_MAP, clanIsActiveMap -> {
+            if (clanIsActiveMap.succeeded()) {
+                clanIsActiveMap
+                        .result()
+                        .entries()
+                        .onComplete(res -> {
+                            List<String> activeClans = res.result()
+                                    .entrySet()
+                                    .stream()
+                                    .filter(Map.Entry::getValue)
+                                    .map(Map.Entry::getKey)
+                                    .toList();
+
+                            System.out.println("All active clans: " + activeClans);
+                            final ThreadLocalRandom random = ThreadLocalRandom.current();
+                            if (activeClans.size() != 0) {
+                                int number = random.nextInt(RANDOM_ROOF);
+                                if (number >= EXECUTE_REQUEST_RANDOM_ROOF) {
+                                    String clanName = activeClans.get(random.nextInt(activeClans.size()));
+                                    System.out.println("Sending application for membership in " + clanName);
+                                    vertx.eventBus().<Boolean>request(JOIN_REQUEST + clanName, name, deliveryOptions
+                                                    .setSendTimeout(TIME_OUT),
+                                            reply -> {
+                                                if (reply.succeeded()) {
+                                                    System.out.println("I have response form moderators of " + clanName + ", he said: " + reply.result().body());
+                                                    if (reply.result().body()) {
+                                                        vertx.cancelTimer(timer);
+                                                        Promise<Void> promise = Promise.promise();
+                                                        getClan(promise);
+                                                        promise.future().onSuccess(success -> {
+                                                            System.out.println("Congratulations! A am in clan " + clanName + " now!");
+                                                        });
+                                                    }
+                                                }
+                                            });
+                                }
+                            }
+                        });
+            }
+        }));
+    }
+
+    @Override
+    public void stop(Promise<Void> stopPromise) {
+        vertx.sharedData().<String, Boolean>getAsyncMap(USER_ONLINE_MAP, map -> {
+            if (map.succeeded()) {
+                map.result().put(name, false);
+                stopPromise.complete();
+            }
+        });
+    }
+}
