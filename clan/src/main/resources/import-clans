@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Clan_1",
+    "admin": "Admin_1",
+    "amountModerators": 43,
+    "amountUsers": 78,
+    "moderators": [
+        "Moderator_1",
+        "Moderator_2",
+        "Moderator_3",
+        "Moderator_4",
+        "Moderator_5"
+    ]
+  },
+  {
+    "name": "Clan_2",
+    "admin": "Admin_2",
+    "moderators": [
+            "Moderator_6",
+            "Moderator_7",
+            "Moderator_8",
+            "Moderator_9",
+            "Moderator_10"
+        ]
+  },
+  {
+    "name": "Clan_3",
+    "admin": "Admin_3",
+    "amountModerators": 23,
+    "amountUsers": 38,
+    "moderators": [
+                "Moderator_11",
+                "Moderator_12"
+            ]
+  },
+  {
+    "name": "Clan_4",
+    "admin": "Admin_4",
+    "amountModerators": 65,
+    "amountUsers": 125,
+    "moderators": [
+                "Moderator_13",
+                "Moderator_14",
+                "Moderator_15",
+                "Moderator_16",
+                "Moderator_17"
+            ]
+  },
+  {
+    "name": "Clan_5",
+    "admin": "Admin_5",
+    "amountModerators": 786,
+    "amountUsers": 74568,
+    "moderators": [
+                "Moderator_18",
+                "Moderator_19",
+                "Moderator_20",
+                "Moderator_21",
+                "Moderator_22"
+            ]
+  }
+]
