@@ -1,7 +1,5 @@
 package org.example;
 
-import io.vertx.core.eventbus.MessageCodec;
-
 public enum ClanEvent {
     ACTIVATE(true),
     DISACTIVATE(false);
